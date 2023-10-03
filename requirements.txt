@@ -1,0 +1,6 @@
+torch-ema==0.3
+torchinfo==1.6.3
+torchsde==0.2.5
+tqdm==4.63.0
+wandb==0.12.11
+pytorch-lightning==1.8.1
