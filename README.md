@@ -1,4 +1,4 @@
-# （Variance Preserving Interpolation Diffusion Model for Speech Enhancement) VPIDM 
+# （VPIDM) Variance Preserving Interpolation Diffusion Model for Speech Enhancement  
 [variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527), in which we apply the diffusion model to the speech enhancement (denoising) task. Diffusion Models for Speech Enhancement.
 
 # Preparation
