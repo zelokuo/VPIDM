@@ -4,3 +4,6 @@ torchsde==0.2.5
 tqdm==4.63.0
 wandb==0.12.11
 pytorch-lightning==1.8.1
+Ninja
+pesq
+pystoi
