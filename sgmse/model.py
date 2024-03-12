@@ -108,10 +108,10 @@ class ScoreModel(pl.LightningModule):
 
     def _step(self, batch, batch_idx):
         x, y = batch
-        #t = torch.rand(x.shape[0], device=x.device) * (self.sde.T - self.t_eps) + self.t_eps
-        emb = torch.ones(x.shape[0], device=x.device)
-        score = self(y, emb, y)
-        err = score  -  y
+        t = torch.rand(x.shape[0], device=x.device) * (self.sde.T - self.t_eps) + self.t_eps
+        #emb = torch.ones(x.shape[0], device=x.device)
+        score = self(y, t, y)
+        err = score  +  y
         loss = self._loss(err)
         return loss
 
@@ -138,7 +138,7 @@ class ScoreModel(pl.LightningModule):
         dnn_input = torch.cat([x, y], dim=1)
         
         # the minus is most likely unimportant here - taken from Song's repo
-        score = self.dnn(dnn_input, t)
+        score = - self.dnn(dnn_input, t)
         return score
 
     def to(self, *args, **kwargs):
