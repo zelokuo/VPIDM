@@ -107,13 +107,20 @@ class ScoreModel(pl.LightningModule):
         return loss
 
     def _step(self, batch, batch_idx):
-        x, y = batch
         t = torch.rand(x.shape[0], device=x.device) * (self.sde.T - self.t_eps) + self.t_eps
-        #emb = torch.ones(x.shape[0], device=x.device)
-        score = self(y, t, y)
-        err = score  +  y
+        mean, std = self.sde.marginal_prob(x, t, y)
+        emb = t if self.time_emb else std
+        z = torch.randn_like(x)  # i.i.d. normal distributed with var=0.5
+        sigmas = std[:, None, None, None]
+        perturbed_data = mean + sigmas * z
+        score = self(perturbed_data, emb, y)
+        err = score * sigmas + z
         loss = self._loss(err)
         return loss
+
+       
+            
+
 
     def training_step(self, batch, batch_idx):
         loss = self._step(batch, batch_idx)
