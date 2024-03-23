@@ -1,8 +1,8 @@
-import argparse
+import argparse, os
 from argparse import ArgumentParser
 
 import pytorch_lightning as pl
-from pytorch_lightning.plugins import DDPPlugin
+from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
@@ -28,8 +28,11 @@ if __name__ == '__main__':
      parser = ArgumentParser()
      for parser_ in (base_parser, parser):
           parser_.add_argument("--backbone", type=str, choices=BackboneRegistry.get_all_names(), default="ncsnpp")
+          parser_.add_argument("--logdir", type=str,  default=None)
           parser_.add_argument("--sde", type=str, choices=SDERegistry.get_all_names(), default="ouve")
           parser_.add_argument("--no_wandb", action='store_true', help="Turn off logging to W&B, using local default logger instead")
+          parser_.add_argument("--T", type=float, default=1., help="The biggest sample time index")
+          #parser_.add_argument("--resume_from_checkpoint", type=str, default='none', help="Turn off logging to W&B, using local default logger instead")
           
      temp_args, _ = base_parser.parse_known_args()
 
@@ -51,9 +54,13 @@ if __name__ == '__main__':
      args = parser.parse_args()
      arg_groups = get_argparse_groups(parser)
 
+     T = args.T
+     logdir = args.logdir
+     logdir = 'logs' if logdir == None else os.path.join(logdir, 'logs')
+
      # Initialize logger, trainer, model, datamodule
      model = ScoreModel(
-          backbone=args.backbone, sde=args.sde, data_module_cls=data_module_cls,
+          backbone=args.backbone, sde=args.sde, data_module_cls=data_module_cls, T=T,
           **{
                **vars(arg_groups['ScoreModel']),
                **vars(arg_groups['SDE']),
@@ -64,26 +71,28 @@ if __name__ == '__main__':
 
      # Set up logger configuration
      if args.no_wandb:
-          logger = TensorBoardLogger(save_dir="logs", name="tensorboard")
+          logger = TensorBoardLogger(save_dir=logdir, name="tensorboard")
      else:
           logger = WandbLogger(project="sgmse", log_model=True, save_dir="logs")
           logger.experiment.log_code(".")
 
      # Set up callbacks for logger
-     callbacks = [ModelCheckpoint(dirpath=f"logs/{logger.version}", save_last=True, filename='{epoch}-last')]
+     callbacks = [ModelCheckpoint(dirpath=f"{logdir}/{logger.version}", save_last=True, filename='{epoch}-last')]
      if args.num_eval_files:
-          checkpoint_callback_pesq = ModelCheckpoint(dirpath=f"logs/{logger.version}", 
+          checkpoint_callback_pesq = ModelCheckpoint(dirpath=f"{logdir}/{logger.version}", 
                save_top_k=2, monitor="pesq", mode="max", filename='{epoch}-{pesq:.2f}')
-          checkpoint_callback_si_sdr = ModelCheckpoint(dirpath=f"logs/{logger.version}", 
+          checkpoint_callback_si_sdr = ModelCheckpoint(dirpath=f"{logdir}/{logger.version}", 
                save_top_k=2, monitor="si_sdr", mode="max", filename='{epoch}-{si_sdr:.2f}')
-          callbacks += [checkpoint_callback_pesq, checkpoint_callback_si_sdr]
-
+          callbacks += [checkpoint_callback_pesq]# , checkpoint_callback_si_sdr]
+     resume_from_checkpoint = None if args.resume_from_checkpoint == 'none' else args.resume_from_checkpoint
      # Initialize the Trainer and the DataModule
      trainer = pl.Trainer.from_argparse_args(
           arg_groups['pl.Trainer'],
-          strategy=DDPPlugin(find_unused_parameters=False), logger=logger,
-          log_every_n_steps=10, num_sanity_val_steps=1,
-          callbacks=callbacks
+          strategy=DDPStrategy(find_unused_parameters=False), logger=logger,
+          log_every_n_steps=10, num_sanity_val_steps=1, check_val_every_n_epoch=1,
+        # limit_val_batches=10,
+          callbacks=callbacks,
+          resume_from_checkpoint=resume_from_checkpoint,
      )
 
      # Train model
