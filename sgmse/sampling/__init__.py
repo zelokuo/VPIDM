@@ -1,7 +1,11 @@
 # Adapted from https://github.com/yang-song/score_sde_pytorch/blob/1618ddea340f3e4a2ed7852a0694a809775cf8d0/sampling.py
 """Various sampling methods."""
 from scipy import integrate
-import torch
+from soundfile import write
+from sgmse.util.other import ensure_dir, pad_spec
+import torch, os
+import torchaudio
+import numpy as np
 
 from .predictors import Predictor, PredictorRegistry, ReverseDiffusionPredictor
 from .correctors import Corrector, CorrectorRegistry
@@ -26,8 +30,8 @@ def from_flattened_numpy(x, shape):
 def get_pc_sampler(
     predictor_name, corrector_name, sde, score_fn, y,
     denoise=True, eps=3e-2, snr=0.1, corrector_steps=1, probability_flow: bool = False,
-    time_emb=True,
-    intermediate=False, **kwargs
+    time_emb=True, predict_mean=False,
+    intermediate=False, save_mid_outputs: bool=False, output_dir=None, name=None, T_orig=None, X=None, use_degraded=False, **kwargs
 ):
     """Create a Predictor-Corrector (PC) sampler.
 
@@ -45,25 +49,39 @@ def get_pc_sampler(
     Returns:
         A sampling function that returns samples and the number of function evaluations during sampling.
     """
+
+    #def updated_fn(x, t, y, sigma):
+    #    if not predict_mean:
+    #        fn = score_fn(x, t, y)
+    #    else:
+    #        fn = -(sde._alpha(t)*score_fn(x, t, y) + x)/(sigma**2 + 1e-8) 
+    #    return fn
+
+
     predictor_cls = PredictorRegistry.get_by_name(predictor_name)
     corrector_cls = CorrectorRegistry.get_by_name(corrector_name)
-    predictor = predictor_cls(sde, score_fn, probability_flow=probability_flow)
+    predictor = predictor_cls(sde, score_fn, probability_flow=probability_flow,)
     corrector = corrector_cls(sde, score_fn, snr=snr, n_steps=corrector_steps)
 
     def pc_sampler():
         """The PC sampler function."""
         with torch.no_grad():
-            xt = sde.prior_sampling(y.shape, y).to(y.device)
+            eps2 = 1./sde.N
             timesteps = torch.linspace(sde.T, eps, sde.N, device=y.device)
-            for i in range(sde.N):
+            mean, std = sde.marginal_prob(y, timesteps[:1], y)
+            z = torch.randn_like(mean, device=mean.device)
+            xt = mean + std[:, None, None, None]*z
+            for ind, i in enumerate(range(sde.N)):
                 t = timesteps[i]
                 if time_emb:
                     emb = t
                 else:
-                    emb = self.sde._std(t)
+                    emb = sde._std(t)
                 vec_t = torch.ones(y.shape[0], device=y.device) * emb
-                xt, xt_mean = corrector.update_fn(xt, vec_t, y)
-                xt, xt_mean = predictor.update_fn(xt, vec_t, y)
+                condition = y
+                xt, xt_mean = corrector.update_fn(xt, vec_t, condition)
+                xt, xt_mean = predictor.update_fn(xt, vec_t, condition)
+
             x_result = xt_mean if denoise else xt
             ns = sde.N * (corrector.n_steps + 1)
             return x_result, ns
