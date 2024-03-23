@@ -1,6 +1,6 @@
 # （VPIDM) Variance Preserving Interpolation Diffusion Model for Speech Enhancement  
 [variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527), in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
-# Demo
+# Listening Demo
 We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using the model trained on the DNS corpus.
 # Preparation
 Install requirements in requirements.txt via
@@ -61,6 +61,7 @@ python enhancement.py --test_dir <test_noisy_dir>
 ```
 ## Checkpoints 
 We release the checkpoint trained on the VoiceBank+Demand dataset [here](https://drive.google.com/file/d/1nkzdsd-LjJNObRHZObh_R6yGeRtxk1If/view?usp=drive_link).
+
 We release the checkpoint trained on the DNS corpus (only using additive noises) [here](https://drive.google.com/file/d/1nkzdsd-LjJNObRHZObh_R6yGeRtxk1If/view?usp=drive_link).
 
 # Thanks and Citations
