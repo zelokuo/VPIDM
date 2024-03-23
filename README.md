@@ -62,7 +62,7 @@ python enhancement.py --test_dir <test_noisy_dir>
 ## Checkpoints 
 We release the checkpoint trained on the VoiceBank+Demand dataset [here](https://drive.google.com/file/d/1nkzdsd-LjJNObRHZObh_R6yGeRtxk1If/view?usp=drive_link).
 
-We release the checkpoint trained on the DNS corpus (only using additive noises) [here](https://drive.google.com/file/d/1nkzdsd-LjJNObRHZObh_R6yGeRtxk1If/view?usp=drive_link).
+We release the checkpoint trained on the DNS corpus (only using additive noises) [here](https://drive.google.com/file/d/1jDj5daO81nY_9vMNrU_FrVH40a3aj1HR/view?usp=sharing).
 
 # Thanks and Citations
 This code is mainly built on the [SGMSE+](https://github.com/sp-uhh/sgmse). grateful for their open-source spirit.
