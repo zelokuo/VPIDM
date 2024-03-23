@@ -5,6 +5,7 @@ from pesq import pesq
 from pystoi import stoi
 
 from .other import si_sdr, pad_spec
+from ..sdes import OUVESDE, VPSDE
 
 # Settings
 sr = 16000
@@ -13,7 +14,13 @@ N = None
 corrector_steps = 0
 
 
-def evaluate_model(model, num_eval_files):
+def evaluate_model(model, num_eval_files, p_name='reverse_diffusion'):
+    if isinstance(model.sde, OUVESDE):
+        corrector_steps = 1
+    elif isinstance(model.sde,  VPSDE):
+        corrector_steps = 0 
+    else:
+        raise ValueError("please declare your SDE name and its corrector steps")
 
     clean_files = model.data_module.valid_set.clean_files
     noisy_files = model.data_module.valid_set.noisy_files
@@ -30,8 +37,8 @@ def evaluate_model(model, num_eval_files):
     # iterate over files
     for (clean_file, noisy_file) in zip(clean_files, noisy_files):
         # Load wavs
-        x, _ = load(clean_file)
-        y, _ = load(noisy_file) 
+        x, _ = load(clean_file.strip())
+        y, _ = load(noisy_file.strip()) 
         T_orig = x.size(1)   
 
         # Normalize per utterance
@@ -44,9 +51,11 @@ def evaluate_model(model, num_eval_files):
         y = y * norm_factor
 
         # Reverse sampling
-        Y = Y.cuda()
-        emb = torch.ones(Y.shape[0], device=Y.device)
-        sample = model(Y, emb, Y)
+        sampler = model.get_pc_sampler(
+            p_name, 'ald', Y.cuda(), N=N, 
+            corrector_steps=corrector_steps, snr=snr)
+        sample, _ = sampler()
+
         x_hat = model.to_audio(sample.squeeze(), T_orig)
         x_hat = x_hat * norm_factor
 
