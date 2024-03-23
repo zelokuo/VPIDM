@@ -1,8 +1,10 @@
+from sgmse.backbones import BackboneRegistry
 import time
 from math import ceil
 import warnings
 
 import torch
+import numpy as np
 import pytorch_lightning as pl
 from torch_ema import ExponentialMovingAverage
 
@@ -11,6 +13,7 @@ from sgmse.sdes import SDERegistry
 from sgmse.backbones import BackboneRegistry
 from sgmse.util.inference import evaluate_model
 from sgmse.util.other import pad_spec
+from pesq import pesq
 
 
 class ScoreModel(pl.LightningModule):
@@ -18,15 +21,18 @@ class ScoreModel(pl.LightningModule):
     def add_argparse_args(parser):
         parser.add_argument("--lr", type=float, default=1e-4, help="The learning rate (1e-4 by default)")
         parser.add_argument("--ema_decay", type=float, default=0.999, help="The parameter EMA decay constant (0.999 by default)")
-        parser.add_argument("--t_eps", type=float, default=0.03, help="The minimum time (3e-2 by default)")
+        parser.add_argument("--t_eps", type=float, default=3e-2, help="The minimum time (1e-3 by default)")
         parser.add_argument("--num_eval_files", type=int, default=20, help="Number of files for speech enhancement performance evaluation during training. Pass 0 to turn off (no checkpoints based on evaluation metrics will be generated).")
         parser.add_argument("--loss_type", type=str, default="mse", choices=("mse", "mae"), help="The type of loss function to use.")
         parser.add_argument("--time_emb", type=bool, default=True, help="using time step as condition or sigma")
+        parser.add_argument("--p_name", type=str, default='reverse_diffusion', help="using time step as condition or sigma")
         return parser
 
     def __init__(
         self, backbone, sde, lr=1e-4, ema_decay=0.999, t_eps=3e-2,
-        num_eval_files=20, loss_type='mse', data_module_cls=None, time_emb=True,        **kwargs
+        num_eval_files=20, loss_type='mse', data_module_cls=None, time_emb=True, 
+        p_name='reverse_diffusion', T=1.0, 
+         **kwargs
     ):
         """
         Create a new ScoreModel.
@@ -42,7 +48,7 @@ class ScoreModel(pl.LightningModule):
         super().__init__()
         # Initialize Backbone DNN
         dnn_cls = BackboneRegistry.get_by_name(backbone)
-        self.dnn = dnn_cls(**kwargs)
+        self.dnn = dnn_cls()
         # Initialize SDE
         sde_cls = SDERegistry.get_by_name(sde)
         self.sde = sde_cls(**kwargs)
@@ -50,23 +56,27 @@ class ScoreModel(pl.LightningModule):
         # Store hyperparams and save them
         self.lr = lr
         self.ema_decay = ema_decay
-        self.ema = ExponentialMovingAverage(self.parameters(), decay=self.ema_decay)
+        self.ema = ExponentialMovingAverage(self.dnn.parameters(), decay=self.ema_decay)
         self._error_loading_ema = False
         self.t_eps = t_eps
         self.loss_type = loss_type
         self.num_eval_files = num_eval_files
+        self.p_name = p_name
+        self.T = T
+        self.sde.t = T
 
         self.save_hyperparameters(ignore=['no_wandb'])
         self.data_module = data_module_cls(**kwargs, gpu=kwargs.get('gpus', 0) > 0)
+        self.cal_pesq = pesq
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.Adam(self.dnn.parameters(), lr=self.lr)
         return optimizer
 
     def optimizer_step(self, *args, **kwargs):
         # Method overridden so that the EMA params are updated after each optimizer step
         super().optimizer_step(*args, **kwargs)
-        self.ema.update(self.parameters())
+        self.ema.update(self.dnn.parameters())
 
     # on_load_checkpoint / on_save_checkpoint needed for EMA storing/loading
     def on_load_checkpoint(self, checkpoint):
@@ -85,12 +95,12 @@ class ScoreModel(pl.LightningModule):
         if not self._error_loading_ema:
             if mode == False and not no_ema:
                 # eval
-                self.ema.store(self.parameters())        # store current params in EMA
-                self.ema.copy_to(self.parameters())      # copy EMA parameters over current params for evaluation
+                self.ema.store(self.dnn.parameters())        # store current params in EMA
+                self.ema.copy_to(self.dnn.parameters())      # copy EMA parameters over current params for evaluation
             else:
                 # train
                 if self.ema.collected_params is not None:
-                    self.ema.restore(self.parameters())  # restore the EMA weights (if stored)
+                    self.ema.restore(self.dnn.parameters())  # restore the EMA weights (if stored)
         return res
 
     def eval(self, no_ema=False):
@@ -103,14 +113,16 @@ class ScoreModel(pl.LightningModule):
             losses = err.abs()
         # taken from reduce_op function: sum over channels and position and mean over batch dim
         # presumably only important for absolute loss number, not for gradients
-        loss = torch.mean(0.5*torch.sum(losses.reshape(losses.shape[0], -1), dim=-1))
+        reduce_func = lambda x : torch.sum(x.reshape(x.shape[0], -1), dim=-1)
+        loss = torch.mean(0.5*reduce_func(losses))
         return loss
 
     def _step(self, batch, batch_idx):
+        x, y = batch
         t = torch.rand(x.shape[0], device=x.device) * (self.sde.T - self.t_eps) + self.t_eps
         mean, std = self.sde.marginal_prob(x, t, y)
         emb = t if self.time_emb else std
-        z = torch.randn_like(x)  # i.i.d. normal distributed with var=0.5
+        z = torch.randn_like(x) # i.i.d. normal distributed with var=0.5
         sigmas = std[:, None, None, None]
         perturbed_data = mean + sigmas * z
         score = self(perturbed_data, emb, y)
@@ -118,25 +130,27 @@ class ScoreModel(pl.LightningModule):
         loss = self._loss(err)
         return loss
 
-       
-            
-
-
     def training_step(self, batch, batch_idx):
         loss = self._step(batch, batch_idx)
-        self.log('train_loss', loss, on_step=True, on_epoch=True)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss = self._step(batch, batch_idx)
-        self.log('valid_loss', loss, on_step=False, on_epoch=True)
+        #loss = self._step(batch, batch_idx)
+        #self.log('valid_loss', loss, on_step=False, on_epoch=True)
+        #if self.global_rank == 0:
+        #    torch.save(self.dnn.module.state_dict(), 'cond_on_yt_reverse.ckpt')
+            
 
         # Evaluate speech enhancement performance
+        loss = 0
         if batch_idx == 0 and self.num_eval_files != 0:
-            pesq, si_sdr, estoi = evaluate_model(self, self.num_eval_files)
-            self.log('pesq', pesq, on_step=False, on_epoch=True)
-            self.log('si_sdr', si_sdr, on_step=False, on_epoch=True)
-            self.log('estoi', estoi, on_step=False, on_epoch=True)
+            pesq, si_sdr, estoi = evaluate_model(self, self.num_eval_files, self.p_name)
+            self.log('pesq', pesq, on_step=False, on_epoch=True, sync_dist=True)
+            self.log('si_sdr', si_sdr, on_step=False, on_epoch=True, sync_dist=True)
+            self.log('estoi', estoi, on_step=False, on_epoch=True, sync_dist=True)
+
+        torch.cuda.empty_cache()
 
         return loss
 
@@ -145,7 +159,7 @@ class ScoreModel(pl.LightningModule):
         dnn_input = torch.cat([x, y], dim=1)
         
         # the minus is most likely unimportant here - taken from Song's repo
-        score = - self.dnn(dnn_input, t)
+        score = -self.dnn(dnn_input, t)
         return score
 
     def to(self, *args, **kwargs):
@@ -153,14 +167,19 @@ class ScoreModel(pl.LightningModule):
         self.ema.to(*args, **kwargs)
         return super().to(*args, **kwargs)
 
-    def get_pc_sampler(self, predictor_name, corrector_name, y, N=None, minibatch=None,  **kwargs):
+    def get_pc_sampler(self, predictor_name, corrector_name, y, N=None, T=None, resolution=None, minibatch=None,  **kwargs):
         N = self.sde.N if N is None else N
+        T = self.sde.t if T is None else T
         sde = self.sde.copy()
         sde.N = N
+        sde.t = T
+        sde.resolution = None if resolution is None else resolution
 
         kwargs = {"eps": self.t_eps, **kwargs}
         if minibatch is None:
-            return sampling.get_pc_sampler(predictor_name, corrector_name, sde=sde, score_fn=self, y=y, time_emb=self.time_emb, **kwargs)
+            return sampling.get_pc_sampler(predictor_name, corrector_name, sde=sde, score_fn=self, y=y, time_emb=self.time_emb,
+                                             **kwargs)
+
         else:
             M = y.shape[0]
             def batched_sampling_fn():

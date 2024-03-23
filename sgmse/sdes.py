@@ -9,6 +9,7 @@ import warnings
 import numpy as np
 from sgmse.util.tensors import batch_broadcast
 import torch
+import scipy.special as sc
 
 from sgmse.util.registry import Registry
 
@@ -19,7 +20,7 @@ SDERegistry = Registry("SDE")
 class SDE(abc.ABC):
     """SDE abstract class. Functions are designed for a mini-batch of inputs."""
 
-    def __init__(self, N):
+    def __init__(self, N, resolution=None):
         """Construct an SDE.
 
         Args:
@@ -27,6 +28,7 @@ class SDE(abc.ABC):
         """
         super().__init__()
         self.N = N
+        self.resolution = resolution
 
     @property
     @abc.abstractmethod
@@ -69,7 +71,7 @@ class SDE(abc.ABC):
         """
         pass
 
-    def discretize(self, x, t, *args):
+    def discretize(self, x, t, y, *args):
         """Discretize the SDE in the form: x_{i+1} = x_i + f_i(x_i) + G_i z_i.
 
         Useful for reverse diffusion sampling and probabiliy flow sampling.
@@ -82,8 +84,9 @@ class SDE(abc.ABC):
         Returns:
             f, G
         """
-        dt = 1 / self.N
-        drift, diffusion = self.sde(x, t, *args)
+
+        dt = 1 / self.N if self.resolution is None else self.resolution
+        drift, diffusion = self.sde(x, t, y, *args)
         f = drift * dt
         G = diffusion * torch.sqrt(torch.tensor(dt, device=t.device))
         return f, G
@@ -127,10 +130,10 @@ class SDE(abc.ABC):
                     'sde_diffusion': sde_diffusion, 'score_drift': score_drift, 'score': score,
                 }
 
-            def discretize(self, x, t, *args):
+            def discretize(self, x, t, y, *args):
                 """Create discretized iteration rules for the reverse diffusion sampler."""
-                f, G = discretize_fn(x, t, *args)
-                rev_f = f - G[:, None, None, None] ** 2 * score_model(x, t, *args) * (0.5 if self.probability_flow else 1.)
+                f, G = discretize_fn(x, t, y)
+                rev_f = f - G[:, None, None, None] ** 2 * score_model(x, t, y, *args) * (0.5 if self.probability_flow else 1.)
                 rev_G = torch.zeros_like(G) if self.probability_flow else G
                 return rev_f, rev_G
 
@@ -149,9 +152,11 @@ class OUVESDE(SDE):
         parser.add_argument("--theta", type=float, default=1.5, help="The constant stiffness of the Ornstein-Uhlenbeck process. 1.5 by default.")
         parser.add_argument("--sigma-min", type=float, default=0.05, help="The minimum sigma to use. 0.05 by default.")
         parser.add_argument("--sigma-max", type=float, default=0.5, help="The maximum sigma to use. 0.5 by default.")
+        parser.add_argument("--eta_mode", type=str, default='exp', help="eta mode exponent, linear, ect")
+        parser.add_argument("--eta", type=float, default=0.8, help="The eta to use.")
         return parser
 
-    def __init__(self, theta, sigma_min, sigma_max, N=30, **ignored_kwargs):
+    def __init__(self, theta, sigma_min, sigma_max, eta=None, eta_mode='exp', N=30, **ignored_kwargs):
         """Construct an Ornstein-Uhlenbeck Variance Exploding SDE.
 
         Note that the "steady-state mean" `y` is not provided at construction, but must rather be given as an argument
@@ -174,10 +179,12 @@ class OUVESDE(SDE):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.logsig = np.log(self.sigma_max / self.sigma_min)
+        self.eta = eta
+        self.eta_mode = eta_mode
         self.N = N
 
     def copy(self):
-        return OUVESDE(self.theta, self.sigma_min, self.sigma_max, N=self.N)
+        return OUVESDE(self.theta, self.sigma_min, self.sigma_max, self.eta, self.eta_mode, N=self.N)
 
     @property
     def T(self):
@@ -196,7 +203,14 @@ class OUVESDE(SDE):
     def _mean(self, x0, t, y):
         theta = self.theta
         exp_interp = torch.exp(-theta * t)[:, None, None, None]
+        if self.eta_mode == 'linear':
+             exp_interp = 1 - self.eta*t[:, None, None, None]
+
         return exp_interp * x0 + (1 - exp_interp) * y
+
+    def _alpha(self, t):
+        return 1.
+
 
     def _std(self, t):
         # This is a full solution to the ODE for P(t) in our derivations, after choosing g(s) as in self.sde()
@@ -293,6 +307,11 @@ class OUVPSDE(SDE):
         b0, b1, s = self.beta_min, self.beta_max, self.stiffness
         return (1 - torch.exp(-0.5 * s * t * (t * (b1-b0) + 2 * b0))) / s
 
+    
+    def _alpha(self, t): 
+        return 1.
+
+
     def marginal_prob(self, x0, t, y):
         return self._mean(x0, t, y), self._std(t)
 
@@ -313,14 +332,21 @@ class VPSDE(SDE):
     # !!! We do not utilize this SDE in our works due to observed instabilities around t=0.2. !!!
     @staticmethod
     def add_argparse_args(parser):
-        parser.add_argument("--N", type=int, default=100,
+        parser.add_argument("--N", type=int, default=25,
             help="The number of timesteps in the SDE discretization. 1000 by default")
         parser.add_argument("--beta-min", type=float, default=0.1, help="The minimum beta to use.")
-        parser.add_argument("--beta-max", type=float, default=20, help="The maximum beta to use.")
-        parser.add_argument("--eta", type=float, default=1., help="The eta to use.")
+        parser.add_argument("--beta-max", type=float, default=2, help="The maximum beta to use.")
+        parser.add_argument("--eta", type=float, default=1.5, help="The eta to use.")
+        parser.add_argument("--vp_mode", type=str, default='ddpm', help="beta shchdule ddmp or improved ddpm")
+        parser.add_argument("--eta_mode", type=str, default='exp', help="eta mode exponent, linear, ect")
+        parser.add_argument("--customized_var", action='store_true',  help="Customize your own exponential variance scheduler")
+        parser.add_argument("--cv_mode", type=int, default=1, help="The first coefficient .")
+        parser.add_argument("--cv1", type=float, default=0.3, help="The first coefficient .")
+        parser.add_argument("--cv2", type=float, default=0.1, help="The first coefficient .")
+
         return parser
 
-    def __init__(self, beta_min, beta_max, eta, N=100, **ignored_kwargs):
+    def __init__(self, beta_min, beta_max, eta, N=100, vp_mode='ddpm', eta_mode='exp', customized_var=False, cv_mode=1, cv1=0.3, cv2=0.1, **ignored_kwargs):
         """
         Args:
             beta_min: smallest sigma.
@@ -331,47 +357,115 @@ class VPSDE(SDE):
         self.beta_min = beta_min
         self.beta_max = beta_max
         self.eta = eta
+        self.eta_mode = eta_mode
         self.N = N
+        self.t = 1.
+        self.vp_mode = vp_mode
+        self.customized_var = customized_var
+        self.cv_mode = cv_mode
+        self.cv1 = cv1
+        self.cv2 = cv2
 
     def copy(self):
-        return VPSDE(self.beta_min, self.beta_max, N=self.N, eta=self.eta)
+        return VPSDE(self.beta_min, self.beta_max, N=self.N, eta=self.eta, vp_mode=self.vp_mode, 
+                        eta_mode=self.eta_mode, customized_var=self.customized_var, cv1=self.cv1, cv2=self.cv2, cv_mode=self.cv_mode)
 
     @property
     def T(self):
-        return 1.
+        return self.t
 
     def _beta(self, t):
+        if self.vp_mode == 'iddpm':
+            return self.beta_max*2
+        elif self.vp_mode == 'ddpm_3':
+            return self.beta_min + t**2*(self.beta_max - self.beta_min)
+        elif self.vp_mode == 'ddpm_4':
+            return self.beta_min + t**3*(self.beta_max - self.beta_min)
         return self.beta_min + t * (self.beta_max - self.beta_min)
 
     def integral_beta(self, t):
+        if self.vp_mode == 'iddpm':
+            return self.beta_max*t*2
+        elif self.vp_mode == 'ddmp_3':
+            return self.beta_min*t + t**3*(self.beta_max - self.beta_min)/3
+        elif self.vp_mode == 'ddmp_4':
+            return self.beta_min*t + t**4*(self.beta_max - self.beta_min)/4
         return self.beta_min*t + .5*t**2*(self.beta_max - self.beta_min)
+
+
+
+    def log_dif_eta(self, t):
+        if self.eta_mode == 'exp':
+            return self.eta
+        elif self.eta_mode == 'linear':
+            eta = self.eta/(1 - self.eta*t)
+            return eta[:, None, None, None]
+
+    def _eta(self, t):
+        if self.eta_mode == 'exp':
+            return torch.exp(-self.eta*t)[:, None, None, None]
+        elif self.eta_mode == 'linear':
+            return 1 - self.eta*t[:, None, None, None]
+
+
 
     def sde(self, x, t, y):
         beta = self._beta(t)[:, None, None, None]
         integral_beta = self.integral_beta(t)[:, None, None, None]
         exp_itg_beta = torch.exp(-.5*integral_beta)
+        eta = self.log_dif_eta(t)
         drift = -0.5 *beta*x + \
-                    self.eta*(y*(exp_itg_beta) - x)
-        diffusion = torch.sqrt(beta + 2*self.eta*(1 - exp_itg_beta**2)).squeeze(-1).squeeze(-1).squeeze(-1)
+                    eta*(y*exp_itg_beta - x)
+        if self.customized_var:
+            if self.cv_mode == 2:
+                exp_coff = torch.exp(- self.cv1*t**3 - self.cv2*t)
+                diffusion = torch.sqrt((3*self.cv1*t**2 + self.cv2)*exp_coff + (beta + 2*eta)*(1 - exp_coff)).squeeze(-1).squeeze(-1).squeeze(-1)
+            else:
+                exp_coff = torch.exp(- self.cv1*t**2 - self.cv2*t)
+                diffusion = torch.sqrt((2*self.cv1*t + self.cv2)*exp_coff + (beta + 2*eta)*(1 - exp_coff)).squeeze(-1).squeeze(-1).squeeze(-1)
+        else:
+            diffusion = torch.sqrt(beta + 2*eta*(1 - exp_itg_beta**2)).squeeze(-1).squeeze(-1).squeeze(-1)
         return drift, diffusion
 
     def _mean(self, x0, t, y):
         integral_beta = self.integral_beta(t)[:, None, None, None]
         exp_itg_beta = torch.exp(-.5*integral_beta)
-        exp_eta_t = torch.exp(-self.eta*t)[:, None, None, None]
-        return exp_itg_beta*(x0*exp_eta_t + (1 - exp_eta_t)*y)
+        #exp_eta_t = torch.exp(-self.eta*t)[:, None, None, None]
+        eta = self._eta(t)
+        return exp_itg_beta*(x0*eta + (1 - eta)*y)
 
     def _std(self, t):
+        if self.customized_var:
+            if self.cv_mode == 2:
+                exp_itg_beta = torch.exp(- self.cv1*t**3 - self.cv2*t)
+            else:
+                exp_itg_beta = torch.exp(- self.cv1*t**2 - self.cv2*t)
+        else:
+            integral_beta = self.integral_beta(t)
+            exp_itg_beta = torch.exp(-integral_beta)
+        return torch.sqrt(1 - exp_itg_beta)
+
+
+    def _alpha(self, t):
         integral_beta = self.integral_beta(t)
-        exp_itg_beta = torch.exp(-integral_beta)
-        return (1 - exp_itg_beta)
+        integral_beta = integral_beta[:, None, None, None] if integral_beta.dim() else integral_beta.unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        exp_itg_beta = torch.exp(-.5*integral_beta)
+        return exp_itg_beta
+
 
     def marginal_prob(self, x0, t, y):
         integral_beta = self.integral_beta(t)[:, None, None, None]
         exp_itg_beta = torch.exp(-.5*integral_beta)
-        exp_eta_t = torch.exp(-self.eta*t)[:, None, None, None]
-        mean = exp_itg_beta*(x0*exp_eta_t + (1 - exp_eta_t)*y)
-        std = torch.sqrt(1 - exp_itg_beta**2)
+        #exp_eta_t = torch.exp(-self.eta*t)[:, None, None, None]
+        eta = self._eta(t)
+        mean = exp_itg_beta*(x0*eta + (1 - eta)*y)
+        if self.customized_var:
+            if self.cv_mode == 2:
+                std = torch.exp(- self.cv1*t**3 - self.cv2*t)
+            else:
+                std = torch.exp(- self.cv1*t**2 - self.cv2*t)
+        else:
+            std = torch.sqrt(1 - exp_itg_beta**2) 
         return mean, std.squeeze(-1).squeeze(-1).squeeze(-1)
 
     def prior_sampling(self, shape, y):
@@ -385,7 +479,77 @@ class VPSDE(SDE):
     def prior_logp(self, z):
         raise NotImplementedError("prior_logp for OU SDE not yet implemented!")
 
+@SDERegistry.register("bbed")
+class BBED(SDE):
+    @staticmethod
+    def add_argparse_args(parser):
+        parser.add_argument("--N", type=int, default=30, help="The number of timesteps in the SDE discretization. 30 by default")
+        parser.add_argument("--T_sampling", type=float, default=0.999, help="The T so that t < T during sampling in the train step.")
+        parser.add_argument("--k", type=float, default = 2.6, help="base factor for diffusion term") 
+        parser.add_argument("--theta", type=float, default = 0.52, help="root scale factor for diffusion term.")
+        return parser
 
+    def __init__(self, T_sampling, k, theta, N=30, **kwargs):
+        """Construct an Brownian Bridge with Exploding Diffusion Coefficient SDE with parameterization as in the paper.
+        dx = (y-x)/(Tc-t) dt + sqrt(theta)*k^t dw
+        """
+        super().__init__(N)
+        self.k = k
+        self.logk = np.log(self.k)
+        self.theta = theta
+        self.N = N
+        self.Eilog = sc.expi(-2*self.logk)
+        self.T = T_sampling #for sampling in train step and inference
+        self.Tc = 1 #for constructing the SDE, dont change this
+
+
+    def copy(self):
+        return BBED(self.T, self.k, self.theta, N=self.N)
+
+
+    def T(self):
+        return self.T
+    
+    def Tc(self):
+        return self.Tc
+  
+
+    def sde(self, x, t, y):
+        drift = (y - x)/(self.Tc - t)
+        sigma = (self.k) ** t
+        diffusion = sigma * np.sqrt(self.theta)
+        return drift, diffusion
+
+
+    def _mean(self, x0, t, y):
+        time = (t/self.Tc)[:, None, None, None]
+        mean = x0*(1-time) + y*time
+        return mean
+
+    def _std(self, t):
+        t_np = t.cpu().detach().numpy()
+        Eis = sc.expi(2*(t_np-1)*self.logk) - self.Eilog
+        h = 2*self.k**2*self.logk
+        var = (self.k**(2*t_np)-1+t_np) + h*(1-t_np)*Eis
+        var = torch.tensor(var).to(device=t.device)*(1-t)*self.theta
+        return torch.sqrt(var)
+
+    def _alpha(self, t): 
+        return 1.
+
+    def marginal_prob(self, x0, t, y):
+        return self._mean(x0, t, y), self._std(t)
+
+    def prior_sampling(self, shape, y):
+        if shape != y.shape:
+            warnings.warn(f"Target shape {shape} does not match shape of y {y.shape}! Ignoring target shape.")
+        std = self._std(self.T*torch.ones((y.shape[0],), device=y.device))
+        z = torch.randn_like(y)
+        x_T = y + z * std[:, None, None, None]
+        return x_T 
+
+    def prior_logp(self, z):
+        raise NotImplementedError("prior_logp for BBED not yet implemented!")
 
 @SDERegistry.register("vesde")
 class VESDE(SDE):
