@@ -43,7 +43,7 @@ class NCSNpp(nn.Module):
         return parser
 
     def __init__(self,
-        scale_by_sigma = False,
+        scale_by_sigma = True,
         nonlinearity = 'swish',
         nf = 128,
         ch_mult = (1, 1, 2, 2, 2, 2, 2),
