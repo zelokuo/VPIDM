@@ -8,6 +8,10 @@ We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using t
 <div align="center">
 <image src="figures/Training Stage.png"  width="500" alt="Overview of training Stage" />
 </div>
+## The Inferring/Enhancing stage
+<div align="center">
+<image src="figures/Infering Stage.png"  width="500" alt="Illustration of Inferring Stage" />
+</div>
 
 # Preparation
 Install requirements in requirements.txt via
