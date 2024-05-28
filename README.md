@@ -4,6 +4,7 @@ The short version was accepted by Interspeech 2023, found in "**[variance-preser
 # Listening Demo
 We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using the model trained on the DNS corpus.
 # Introduction
+VPIDM in this project is for single-channel speech enhancement/denoising tasks. Overview of training and inferring stages are presented as follows
 ## The training stage
 <div align="center">
 <image src="figures/Training Stage.png"  width="500" alt="Overview of training Stage" />
