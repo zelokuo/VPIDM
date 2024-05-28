@@ -6,7 +6,7 @@ We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using t
 # Introduction
 ## The training stage
 <div align="center">
-<image src="/figures/Training Stage"  width="500" alt="Overview of training Stage" />
+<image src="figures/Training Stage.png"  width="500" alt="Overview of training Stage" />
 </div>
 
 # Preparation
