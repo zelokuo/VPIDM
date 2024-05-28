@@ -1,6 +1,6 @@
 # （VPIDM) Variance Preserving Interpolation Diffusion Model for Speech Enhancement  
-Official PyTorch implementation of "A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition" which has been accepted by TASLP 2024, Interspeech 2023.
-[variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527), [Long version has been accepted by Transaction on Audio, Speech, Language Processing](https://arxiv.org/abs/2405.16952) in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
+Official PyTorch implementation of "[A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition](https://arxiv.org/abs/2405.16952)" which has been accepted by TASLP 2024. 
+[variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527), in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
 # Listening Demo
 We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using the model trained on the DNS corpus.
 # Preparation
