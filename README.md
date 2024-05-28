@@ -1,5 +1,6 @@
 # （VPIDM) Variance Preserving Interpolation Diffusion Model for Speech Enhancement  
-[variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527), in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
+Official PyTorch implementation of "A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition" which has been accepted by TASLP 2024, Interspeech 2023.
+[variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527), [Long version has been accepted by Transaction on Audio, Speech, Language Processing](https://arxiv.org/abs/2405.16952) in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
 # Listening Demo
 We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using the model trained on the DNS corpus.
 # Preparation
@@ -67,6 +68,16 @@ We release the checkpoint trained on the DNS corpus (only using additive noises)
 # Thanks and Citations
 This code is mainly built on the [SGMSE+](https://github.com/sp-uhh/sgmse). grateful for their open-source spirit.
 If you find this project helpful, please kindly cite the following papers. 
+```
+@misc{guo2024variancepreserving,
+      title={A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition}, 
+      author={Zilu Guo and Qing Wang and Jun Du and Jia Pan and Qing-Feng Liu and Chin-Hui},
+      year={2024},
+      eprint={2405.16952},
+      archivePrefix={arXiv},
+      primaryClass={eess.AS}
+}
+```
 ```
 @inproceedings{guo23_interspeech,
   author={Zilu Guo and Jun Du and Chin-Hui Lee and Yu Gao and Wenbin Zhang},
