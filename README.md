@@ -11,7 +11,7 @@ VPIDM in this project is for single-channel speech enhancement/denoising tasks. 
 </div>
 ## The Inferring/Enhancing stage
 <div align="center">
-<image src="figures/Infering Stage.png"  width="500" alt="Illustration of Inferring Stage" />
+<image src="figures/Infering Stage.png"  width="1000" alt="Illustration of Inferring Stage" />
 </div>
 
 # Preparation
