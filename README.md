@@ -3,6 +3,12 @@ Official PyTorch implementation of "**[A Variance-Preserving Interpolation Appro
 The short version was accepted by Interspeech 2023, found in "**[variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527)**", in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
 # Listening Demo
 We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using the model trained on the DNS corpus.
+# Introduction
+## The training stage
+<div align="center">
+<image src="/figures/Training Stage"  width="500" alt="Overview of training Stage" />
+</div>
+
 # Preparation
 Install requirements in requirements.txt via
 ```
