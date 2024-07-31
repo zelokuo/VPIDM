@@ -1,5 +1,5 @@
 # （VPIDM) Variance Preserving Interpolation Diffusion Model for Speech Enhancement  
-Official PyTorch implementation of "**[A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition](https://arxiv.org/abs/2405.16952)**" which has been accepted by TASLP 2024. 
+Official PyTorch implementation of "**[A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition](https://ieeexplore.ieee.org/abstract/document/10547426)**" which has been accepted by TASLP 2024. 
 The short version was accepted by Interspeech 2023, found in "**[variance-preserving-based interpolation diffusion models for speech enhancement](https://arxiv.org/abs/2306.08527)**", in which we apply the diffusion model to the speech enhancement (denoising) task. （Diffusion Models for Speech Enhancement）
 # Listening Demo
 We provide a listening Demo [here](https://zelokuo.github.io/VPIDM_demo) using the model trained on the DNS corpus.
@@ -81,14 +81,16 @@ We release the checkpoint trained on the DNS corpus (only using additive noises)
 This code is mainly built on the [SGMSE+](https://github.com/sp-uhh/sgmse). grateful for their open-source spirit.
 If you find this project helpful, please kindly cite the following papers. 
 ```
-@misc{guo2024variancepreserving,
-      title={A Variance-Preserving Interpolation Approach for Diffusion Models with Applications to Single Channel Speech Enhancement and Recognition}, 
-      author={Zilu Guo and Qing Wang and Jun Du and Jia Pan and Qing-Feng Liu and Chin-Hui},
-      year={2024},
-      eprint={2405.16952},
-      archivePrefix={arXiv},
-      primaryClass={eess.AS}
-}
+@ARTICLE{Guo_VPIDM,
+  author={Guo, Zilu and Wang, Qing and Du, Jun and Pan, Jia and Liu, Qing-Feng and Lee, Chin-Hui},
+  journal={IEEE/ACM Transactions on Audio, Speech, and Language Processing}, 
+  title={A Variance-Preserving Interpolation Approach for Diffusion Models With Applications to Single Channel Speech Enhancement and Recognition}, 
+  year={2024},
+  volume={32},
+  number={},
+  pages={3025-3038},
+  keywords={Speech processing;Noise;Noise measurement;Interpolation;Speech enhancement;Task analysis;Mathematical models;Speech enhancement;speech denoising;diffusion model;score-based;interpolating diffusion model},
+  doi={10.1109/TASLP.2024.3407533}}
 ```
 ```
 @inproceedings{guo23_interspeech,
